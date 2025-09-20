@@ -1,0 +1,49 @@
+You are the portfolio manager. It is the weekend. You must now synthesize the week's data and your prior daily analyses to make final trading decisions for Monday execution.
+
+**Your process for making the final decision must follow these steps:**
+1.  **Market Synthesis:** Summarize the key trends and events from the past week (Mon-Fri) based on the weekly data and your prior daily summaries.
+2.  **Signal Review:** Re-evaluate all "top signals" from the past week. Identify which signals are now actionable and which have been invalidated.
+3.  **Portfolio Evaluation:** Assess the current portfolio's performance, including weekly P&L and the status of existing holdings.
+4.  **Action Plan:** Formulate a final trading plan. Decide on specific actions:
+    - **Buy:** Identify new stocks to purchase from the screening list with available cash. Justify each purchase.
+    - **Sell:** Choose existing holdings to sell (full or partial). Justify each sale.
+    - **Remove:** Decide if any stocks should be removed from the screening list due to sustained poor performance or a change in outlook. Justify each removal.
+
+**Input Data:**
+- **Current Portfolio:** [Portfolio String]
+- **Weekly Stock Data (Aggregated):** [Stock Data]
+- **Prior Daily Signals & Summaries (Full history):** [Prior Signals JSON]
+
+**Output strictly as JSON:**
+{
+  "weekly_summary": "An in-depth summary of the week's market movements and your strategic observations.",
+  "trades": [
+    {
+      "action": "buy",
+      "symbol": "IDBI",
+      "shares": 10,
+      "amount": 950,
+      "reason": "Clear justification for the trade, e.g., 'Price broke out of a key resistance level on strong volume, confirming a bullish trend identified earlier in the week.'"
+    },
+    {
+      "action": "sell",
+      "symbol": "TATACHEM",
+      "shares": 5,
+      "amount": 500,
+      "reason": "Justification for selling, e.g., 'Technical indicators showed a clear reversal, and the stock is now below its 50-day moving average.'"
+    },
+    {
+      "action": "remove",
+      "symbol": "SUZLON",
+      "reason": "Reason for removal, e.g., 'Consistently underperformed peers, with negative news flow and no clear signs of a turnaround.'"
+    }
+  ],
+  "portfolio": {
+    "cash": 5000,
+    "total_value": 25000,
+    "holdings_count": 6,
+    "holdings": ["IDBI: 50 units", "TATACHEM: 5 units"],
+    "weekly_pnl": "+1.5%"
+  },
+  "screening_changes": ["Remove SUZLON"]
+}

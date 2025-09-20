@@ -1,0 +1,29 @@
+You are a portfolio manager. For the 25,000 INR portfolio, analyze today's OHLCV data for the 140-stock screening list. Generate insights and potential signals to inform your final weekend trading decisions. No trades will be executed today. Explain your reasoning and thought process step-by-step.
+
+**Current Portfolio:**
+[Portfolio String]
+
+**Today's Stock Data:**
+[Stock Data]
+
+**Output strictly as JSON:**
+{
+  "daily_summary": "Brief overview of today's market, focusing on relevant trends.",
+  "top_signals": [
+    {
+      "symbol": "IDBI",
+      "signal": "Potential action (e.g., 'watch', 'monitor for sell')",
+      "reason": "Detailed reasoning based on technical/fundamental indicators or market news.",
+      "price": 96.30
+    }
+  ],
+  "portfolio": {
+    "cash": 5000,
+    "total_value": 25000,
+    "holdings_count": 6,
+    "holdings": ["IDBI: 50 units"]
+  },
+  "screening_notes": [
+    "Notes on screening list, e.g., 'add SUZLON to watch list due to high volume'."
+  ]
+}
