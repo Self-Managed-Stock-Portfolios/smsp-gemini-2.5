@@ -6,6 +6,9 @@ You are a portfolio manager. For the 25,000 INR portfolio, analyze today's OHLCV
 **Today's Stock Data:**
 [Stock Data]
 
+**Prior Signal:**
+[Prior Week's Signals]
+
 **Output strictly as JSON:**
 {
   "daily_summary": "Brief overview of today's market, focusing on relevant trends.",
