@@ -32,8 +32,7 @@ def load_prompt(prompt_type: str, date_input: str) -> str:
     
     Raises:
         FileNotFoundError: If prompt file is missing.
-        ValueError: If date format or stock data processing fails.
-        json.JSONDecodeError: If prior signal JSON parsing fails.
+        ValueError: If date format is invalid.
     """
     prompt_files = {
         'f': 'first_timer_prompt.txt',
@@ -47,7 +46,11 @@ def load_prompt(prompt_type: str, date_input: str) -> str:
         prompt = f.read().strip()
     
     if prompt_type in ['d', 't']:
-        portfolio_str = get_portfolio_string(date_input)
+        try:
+            portfolio_str = get_portfolio_string(date_input)
+        except Exception as e:
+            print(f"Error loading portfolio for {date_input}: {e}")
+            portfolio_str = f"No portfolio data available for {date_input}"
         prompt = prompt.replace("[Portfolio String]", portfolio_str)
     
     try:
@@ -56,7 +59,11 @@ def load_prompt(prompt_type: str, date_input: str) -> str:
             stock_data = ""
             for i in range(5):
                 past_date = (target_date - timedelta(days=i)).strftime('%Y-%m-%d')
-                stock_data += get_stock_data_string(past_date) + "\n"
+                try:
+                    stock_data += get_stock_data_string(past_date) + "\n"
+                except Exception as e:
+                    print(f"Error loading stock data for {past_date}: {e}")
+                    stock_data += f"No stock data available for {past_date}\n"
             prompt = prompt.replace("[Stock Data]", stock_data)
             
             prior_signals = []
@@ -65,15 +72,33 @@ def load_prompt(prompt_type: str, date_input: str) -> str:
                 past_date = (target_date - timedelta(days=i)).strftime('%Y-%m-%d')
                 signal_file = os.path.join(signals_dir, f"d_{past_date}.json")
                 if os.path.exists(signal_file):
-                    with open(signal_file, 'r', encoding='utf-8') as f:
-                        signal_data = json.load(f)
-                        signal_content = json.loads(signal_data['text'])
-                        signal_content['date'] = past_date
-                        prior_signals.append(signal_content)
+                    try:
+                        with open(signal_file, 'r', encoding='utf-8') as f:
+                            signal_data = json.load(f)
+                            # Strip ```json and ``` markers
+                            text = signal_data['text']
+                            text = text.strip()
+                            if text.startswith('```json'):
+                                text = text[7:].rstrip('```').strip()
+                            signal_content = json.loads(text)
+                            signal_content['date'] = past_date
+                            prior_signals.append(signal_content)
+                    except json.JSONDecodeError as e:
+                        print(f"Error parsing signal JSON for {past_date}: {e}")
             prompt = prompt.replace("[Prior Signals JSON]", json.dumps(prior_signals))
             prompt = prompt.replace("[Date]", date_input)
         else:
-            stock_data = get_stock_data_string(date_input)
+            stock_data = ""
+            stock_file = os.path.join("Stock Files", f"{date_input}.csv")
+            try:
+                if not os.path.exists(stock_file):
+                    print(f"Stock file not found: {stock_file}")
+                    stock_data = f"No stock data available for {date_input}"
+                else:
+                    stock_data = get_stock_data_string(date_input)
+            except Exception as e:
+                print(f"Error loading stock data for {date_input}: {e}")
+                stock_data = f"No stock data available for {date_input}"
             prompt = prompt.replace("[Stock Data]", stock_data)
             
             if prompt_type == 'd':
@@ -84,18 +109,24 @@ def load_prompt(prompt_type: str, date_input: str) -> str:
                     past_date = (monday + timedelta(days=i)).strftime('%Y-%m-%d')
                     signal_file = os.path.join(signals_dir, f"d_{past_date}.json")
                     if os.path.exists(signal_file):
-                        with open(signal_file, 'r', encoding='utf-8') as f:
-                            signal_data = json.load(f)
-                            signal_content = json.loads(signal_data['text'])
-                            signal_content['date'] = past_date
-                            prior_signals.append(signal_content)
+                        try:
+                            with open(signal_file, 'r', encoding='utf-8') as f:
+                                signal_data = json.load(f)
+                                # Strip ```json and ``` markers
+                                text = signal_data['text']
+                                text = text.strip()
+                                if text.startswith('```json'):
+                                    text = text[7:].rstrip('```').strip()
+                                signal_content = json.loads(text)
+                                signal_content['date'] = past_date
+                                prior_signals.append(signal_content)
+                        except json.JSONDecodeError as e:
+                            print(f"Error parsing signal JSON for {past_date}: {e}")
                 prompt = prompt.replace("[Past Week's Signals]", json.dumps(prior_signals))
                 prompt = prompt.replace("[Date]", date_input)
     
     except ValueError as e:
-        raise ValueError(f"Error processing stock data: {e}")
-    except json.JSONDecodeError as e:
-        raise json.JSONDecodeError(f"Error parsing prior signal JSON: {e}", e.doc, e.pos)
+        raise ValueError(f"Invalid date format: {e}")
     
     return prompt
 
@@ -126,7 +157,7 @@ def save_response(response, prompt_type: str, date_input: str):
     
     response_dict = {
         "text": response.text,
-        "model": "Gemini 2.5",
+        "model": "gemini-2.5",
         "usage": {
             "prompt_tokens": response.usage_metadata.prompt_token_count if hasattr(response.usage_metadata, 'prompt_token_count') else 0,
             "completion_tokens": response.usage_metadata.candidates_token_count if hasattr(response.usage_metadata, 'candidates_token_count') else 0
@@ -147,14 +178,14 @@ if __name__ == "__main__":
     try:
         target_date = datetime.strptime(date_input, '%Y-%m-%d')
         if target_date.weekday() >= 5:
-            print(f"Warning: {date_input} is a weekend. Consider using last trading day (e.g., 2025-09-19).")
+            print(f"Warning: {date_input} is a weekend. Consider using last trading day (e.g., 2025-09-24).")
     except ValueError:
-        print("Invalid date format. Please use YYYY-MM-DD (e.g., 2025-09-19).")
+        print("Invalid date format. Please use YYYY-MM-DD (e.g., 2025-09-24).")
         exit(1)
     
     try:
         prompt = load_prompt(prompt_type, date_input)
-    except (ValueError, FileNotFoundError, json.JSONDecodeError) as e:
+    except (ValueError, FileNotFoundError) as e:
         print(f"Error: {e}")
         exit(1)
     
