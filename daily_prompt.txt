@@ -1,4 +1,4 @@
-You are a portfolio manager. For the 25,000 INR portfolio, analyze today's OHLCV data for the 140-stock screening list. Generate insights and potential signals to inform your final weekend trading decisions. No trades will be executed today. Explain your reasoning and thought process step-by-step.
+You are a portfolio manager. For the 25,000 INR portfolio, analyze today's OHLCV data for the 140-stock screening list. Generate insights and potential signals to inform your daily decisions. Ideally trades will be taken only on Mondaysbut in an emergency you cna inform and trades can be taken tomorrow as well.
 
 **Current Portfolio:**
 [Portfolio String]
@@ -11,22 +11,13 @@ You are a portfolio manager. For the 25,000 INR portfolio, analyze today's OHLCV
 
 **Output strictly as JSON:**
 {
-  "daily_summary": "Brief overview of today's market, focusing on relevant trends.",
+  "daily_summary": "Brief overview of today's market",
   "top_signals": [
-    {
-      "symbol": "IDBI",
-      "signal": "Potential action (e.g., 'watch', 'monitor for sell')",
-      "reason": "Detailed reasoning based on technical/fundamental indicators or market news.",
-      "price": 96.30
-    }
+    {"symbol": "IDBI", "signal": "Potential action", "reason": "Brief explanation", "price": 96.30}
   ],
-  "portfolio": {
-    "cash": 5000,
-    "total_value": 25000,
-    "holdings_count": 6,
-    "holdings": ["IDBI: 50 units"]
-  },
-  "screening_notes": [
-    "Notes on screening list, e.g., 'add SUZLON to watch list due to high volume'."
-  ]
+  "emergency_trades": [
+    {"symbol": "AUBANK", "action": "Buy/Sell", "reason": "Reason for why?", "quantity": "How many do you want to buy/sell", "price": "the price here obviously"}
+  ],
+  "portfolio": {"cash": 5000, "total_value": 25000, "holdings_count": 6, "holdings": ["IDBI: 50 units"]},
+  "screening_notes": ["Notes on screening list, e.g., watch SUZLON"]
 }

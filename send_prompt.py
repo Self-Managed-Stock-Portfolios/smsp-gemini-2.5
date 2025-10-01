@@ -104,26 +104,38 @@ def load_prompt(prompt_type: str, date_input: str) -> str:
             if prompt_type == 'd':
                 prior_signals = []
                 signals_dir = os.path.join("Gemini Daily Reviews", "Weekdays")
-                monday = target_date - timedelta(days=target_date.weekday())
-                for i in range(target_date.weekday() + 1):
-                    past_date = (monday + timedelta(days=i)).strftime('%Y-%m-%d')
-                    signal_file = os.path.join(signals_dir, f"d_{past_date}.json")
-                    if os.path.exists(signal_file):
-                        try:
+                if(target_date.weekday() == 0):
+                    new_date = target_date - timedelta(days=3)
+                    monday = new_date - timedelta(days=new_date.weekday())
+                    for i in range(new_date.weekday() + 1):
+                        past_date = (monday + timedelta(days=i)).strftime('%Y-%m-%d')
+                        signal_file = os.path.join(signals_dir, f"d_{past_date}.json")
+                        if os.path.exists(signal_file):
                             with open(signal_file, 'r', encoding='utf-8') as f:
                                 signal_data = json.load(f)
-                                # Strip ```json and ``` markers
-                                text = signal_data['text']
-                                text = text.strip()
-                                if text.startswith('```json'):
-                                    text = text[7:].rstrip('```').strip()
-                                signal_content = json.loads(text)
+                                text = signal_data["text"]
+                                clean_text = text[7:].rstrip('```').strip()
+                                signal_content = json.loads(clean_text)
                                 signal_content['date'] = past_date
                                 prior_signals.append(signal_content)
-                        except json.JSONDecodeError as e:
-                            print(f"Error parsing signal JSON for {past_date}: {e}")
-                prompt = prompt.replace("[Past Week's Signals]", json.dumps(prior_signals))
-                prompt = prompt.replace("[Date]", date_input)
+                    prompt = prompt.replace("[Prior Week's Signals]", json.dumps(prior_signals))
+                    prompt = prompt.replace("[Date]", date_input)
+                else:
+                    monday = target_date - timedelta(days=target_date.weekday())
+                    for i in range(target_date.weekday() + 1):
+                        past_date = (monday + timedelta(days=i)).strftime('%Y-%m-%d')
+                        signal_file = os.path.join(signals_dir, f"d_{past_date}.json")
+                        if os.path.exists(signal_file):
+                            with open(signal_file, 'r', encoding='utf-8') as f:
+                                
+                                signal_data = json.load(f)
+                                text = signal_data["text"]
+                                clean_text = text[7:].rstrip('```').strip()
+                                signal_content = json.loads(clean_text)
+                                signal_content['date'] = past_date
+                                prior_signals.append(signal_content)
+                    prompt = prompt.replace("[Prior Week's Signals]", json.dumps(prior_signals))
+                    prompt = prompt.replace("[Date]", date_input)
     
     except ValueError as e:
         raise ValueError(f"Invalid date format: {e}")
