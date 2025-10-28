@@ -1,105 +1,168 @@
-
-import pandas as pd
-import yfinance as yf
-import os
 import json
-from datetime import datetime, timedelta
+import pandas as pd
+import re
+import os
 
-def auto_update_portfolio(json_date: str, csv_date: str, api_type: str = "gemini") -> None:
-    """Updates portfolio CSV for csv_date using JSON response from json_date.
-    
-    Args:
-        json_date (str): Date for JSON file in YYYY-MM-DD format (e.g., '2025-09-26').
-        csv_date (str): Date for output CSV in YYYY-MM-DD format (e.g., '2025-09-29').
-        api_type (str): API response type ('gemini' or 'grok') to parse JSON.
-    
-    Raises:
-        ValueError: If date format is invalid.
-        FileNotFoundError: If JSON file or output directory is missing.
-        json.JSONDecodeError: If JSON parsing fails.
-    """
-    try:
-        json_target = datetime.strptime(json_date, '%Y-%m-%d')
-        datetime.strptime(csv_date, '%Y-%m-%d')
-    except ValueError:
-        raise ValueError("Invalid date format. Please use YYYY-MM-DD (e.g., 2025-09-26).")
-    
-    base_dir = "Gemini Daily Reviews" if api_type == "gemini" else "Grok Daily Reviews"
-    sub_dir = "Weekends" if json_target.weekday() < 5 else "Weekends"
-    json_file = os.path.join(base_dir, sub_dir, f"t_{json_target.strftime('%Y-%m-%d')}.json")
-    if not os.path.exists(json_file):
-        raise FileNotFoundError(f"JSON file not found: {json_file}")
-    
-    output_dir = "Portfolio Files"
-    os.makedirs(output_dir, exist_ok=True)
-    csv_file = os.path.join(output_dir, f"{csv_date}.csv")
-    
-    with open(json_file, 'r', encoding='utf-8') as f:
-        json_data = json.load(f)
-    
-    try:
-        signal_content = json.loads(json_data['text'].strip('```json').rstrip('```').strip()) if api_type == "gemini" else json.loads(json_data['choices'][0]['message']['content'])
-    except KeyError:
-        raise json.JSONDecodeError("Invalid JSON format: missing 'text' or 'choices'", "", 0)
-    
-    trades = {trade['symbol']: trade for trade in signal_content['trades'] if trade['action'] != 'remove'}
-    portfolio = signal_content['portfolio']
-    
-    data = []
-    for holding in portfolio['holdings']:
-        symbol = holding.split(':')[0].strip()
-        if symbol in trades:
-            trade = trades[symbol]
-            shares = trade['shares']
-            buy_price = round(trade['amount'] / shares, 2) if shares > 0 else 0.0
-            try:
-                ticker = yf.Ticker(f"{symbol}.NS")
-                hist = ticker.history(start=json_target, end=json_target + timedelta(days=1))
-                if not hist.empty:
-                    current_price = round(hist['Close'].iloc[0], 2)
-                    total_amount = round(current_price * shares, 2)
-                    perct_change = round(((current_price - buy_price) / buy_price) * 100, 2) if buy_price > 0 else 0.0
+
+def extract_inner_json(data):
+    """Extracts and returns the parsed inner JSON from either OpenAI or Gemini response."""
+    # --- Handle OpenAI JSON structure ---
+    if "choices" in data and data["choices"][0]["message"].get("content"):
+        content = data["choices"][0]["message"]["content"]
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            # Try to extract JSON inside code fences
+            match = re.search(r"```json(.*?)```", content, re.DOTALL)
+            if match:
+                return json.loads(match.group(1).strip())
+            raise
+
+    # --- Handle Gemini JSON structure ---
+    elif "text" in data:
+        text = data["text"]
+        match = re.search(r"```json(.*?)```", text, re.DOTALL)
+        if match:
+            inner = match.group(1).strip()
+            return json.loads(inner)
+        else:
+            return json.loads(text)
+
+    else:
+        raise ValueError("Unrecognized JSON structure (neither OpenAI nor Gemini).")
+
+
+def update_portfolio(input_date, output_date):
+    """Updates the portfolio CSV for the given output date using either OpenAI or Gemini JSON format."""
+    json_path = f"Grok Daily Reviews/Weekends/t_{input_date}.json"
+    csv_input_path = f"Portfolio Files/{input_date}.csv"
+    csv_output_path = f"Portfolio Files/{output_date}.csv"
+
+    if not os.path.exists(json_path):
+        raise FileNotFoundError(f"JSON file not found: {json_path}")
+    if not os.path.exists(csv_input_path):
+        raise FileNotFoundError(f"CSV file not found: {csv_input_path}")
+
+    with open(json_path, "r", encoding="utf-8") as f:
+        outer_data = json.load(f)
+
+    # Parse content from Gemini or OpenAI response
+    inner_data = extract_inner_json(outer_data)
+
+    # --- Normalize trades list ---
+    # Gemini uses "emergency_trades" for sells and "top_signals" for buys
+    trades = []
+
+    if "trades" in inner_data:
+        # OpenAI format
+        trades = inner_data["trades"]
+
+    elif "emergency_trades" in inner_data or "top_signals" in inner_data:
+        if "emergency_trades" in inner_data:
+            for t in inner_data["emergency_trades"]:
+                trades.append({
+                    "symbol": t["symbol"],
+                    "action": t["action"].lower(),  # e.g., 'sell'
+                    "shares": t.get("quantity", 0),
+                    "amount": round(t["price"] * t.get("quantity", 0), 2)
+                })
+        if "top_signals" in inner_data:
+            for t in inner_data["top_signals"]:
+                trades.append({
+                    "symbol": t["symbol"],
+                    "action": "buy",
+                    "shares": 1,  # Assume 1 share for new additions unless specified
+                    "amount": round(t["price"], 2)
+                })
+    else:
+        raise ValueError("No trades, top_signals, or emergency_trades found in JSON.")
+
+    # --- Load portfolio CSV ---
+    df = pd.read_csv(csv_input_path)
+
+    # Extract and remove cash
+    cash_row = df[df["Holding Name"] == "Cash"]
+    if cash_row.empty:
+        cash = 0.0
+    else:
+        cash = cash_row["Total Amount"].values[0]
+        df = df[df["Holding Name"] != "Cash"]
+
+    # --- Process trades ---
+    for trade in trades:
+        action = trade["action"].lower()
+        symbol = trade["symbol"]
+        shares = trade["shares"]
+        amount = round(trade["amount"], 2)
+        price = round(amount / shares, 2) if shares > 0 else 0.0
+
+        if action == "remove":
+            continue
+
+        if action == "sell":
+            cash += amount
+            idx = df[df["Holding Name"] == symbol].index
+            if not idx.empty:
+                current_units = df.at[idx[0], "Number of Units"]
+                new_units = current_units - shares
+                if new_units > 0:
+                    df.at[idx[0], "Number of Units"] = new_units
+                    df.at[idx[0], "Current Price"] = price
+                    df.at[idx[0], "Total Amount"] = round(price * new_units, 2)
+                    buying_price = df.at[idx[0], "Buying Price"]
+                    df.at[idx[0], "Perct Change"] = round(
+                        ((price - buying_price) / buying_price) * 100, 2)
                 else:
-                    print(f"No data for {symbol} on {json_date}")
-                    current_price = buy_price
-                    total_amount = round(buy_price * shares, 2)
-                    perct_change = 0.0
-            except Exception as e:
-                print(f"Error fetching data for {symbol}: {e}")
-                current_price = buy_price
-                total_amount = round(buy_price * shares, 2)
-                perct_change = 0.0
-            data.append({
-                'Holding Name': symbol,
-                'Buying Price': buy_price,
-                'Current Price': current_price,
-                'Number of Units': shares,
-                'Total Amount': total_amount,
-                'Perct Change': perct_change
-            })
-    
-    if portfolio['cash'] > 0:
-        data.append({
-            'Holding Name': 'Cash',
-            'Buying Price': 1.00,
-            'Current Price': 1.00,
-            'Number of Units': portfolio['cash'],
-            'Total Amount': portfolio['cash'],
-            'Perct Change': 0.00
-        })
-    
-    df = pd.DataFrame(data)
-    df.to_csv(csv_file, index=False)
-    print(f"Updated portfolio file: {csv_file}")
+                    df = df.drop(idx[0])
+
+        elif action == "buy":
+            cash -= amount
+            idx = df[df["Holding Name"] == symbol].index
+            if not idx.empty:
+                old_units = df.at[idx[0], "Number of Units"]
+                old_buy = df.at[idx[0], "Buying Price"]
+                old_cost = round(old_buy * old_units, 2)
+                new_cost = amount
+                new_units = old_units + shares
+                new_buy = round((old_cost + new_cost) / new_units, 2)
+                df.at[idx[0], "Buying Price"] = new_buy
+                df.at[idx[0], "Current Price"] = price
+                df.at[idx[0], "Number of Units"] = new_units
+                df.at[idx[0], "Total Amount"] = round(price * new_units, 2)
+                df.at[idx[0], "Perct Change"] = round(
+                    ((price - new_buy) / new_buy) * 100, 2)
+            else:
+                new_row = {
+                    "Holding Name": symbol,
+                    "Buying Price": price,
+                    "Current Price": price,
+                    "Number of Units": shares,
+                    "Total Amount": amount,
+                    "Perct Change": 0.00,
+                }
+                df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+
+    # --- Add cash row back ---
+    cash = round(cash, 2)
+    cash_row = pd.DataFrame({
+        "Holding Name": ["Cash"],
+        "Buying Price": [cash],
+        "Current Price": [cash],
+        "Number of Units": [1],
+        "Total Amount": [cash],
+        "Perct Change": [0.00],
+    })
+    df = pd.concat([df, cash_row], ignore_index=True)
+
+    # --- Round numeric values ---
+    for col in ["Buying Price", "Current Price", "Total Amount", "Perct Change"]:
+        df[col] = df[col].round(2)
+
+    df.to_csv(csv_output_path, index=False)
+    print(f"✅ Portfolio successfully updated for {output_date}: {csv_output_path}")
+
 
 if __name__ == "__main__":
-    json_date = input("Enter the JSON date (YYYY-MM-DD): ").strip()
-    csv_date = input("Enter the CSV output date (YYYY-MM-DD): ").strip()
-    api_type = input("Enter API type (gemini or grok): ").strip().lower()
-    if api_type not in ['gemini', 'grok']:
-        print("Invalid API type. Please enter 'gemini' or 'grok'.")
-        exit(1)
-    try:
-        auto_update_portfolio(json_date, csv_date, api_type)
-    except (ValueError, FileNotFoundError, json.JSONDecodeError) as e:
-        print(f"Error: {e}")
+    input_date = input("Enter date for JSON and CSV input (YYYY-MM-DD): ").strip()
+    output_date = input("Enter date for CSV output (YYYY-MM-DD): ").strip()
+    update_portfolio(input_date, output_date)

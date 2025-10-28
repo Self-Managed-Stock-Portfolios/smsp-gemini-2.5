@@ -5,42 +5,40 @@ from tqdm import tqdm
 import time
 import os
 import warnings
-from nsepython import *
-from dateutil.parser import parse
+import yfinance as yf
 
 warnings.filterwarnings('ignore')
 
 
 def fetch_ohlcv(symbols, target_date):
-    """Fetch OHLCV data for symbols on the target date using nsepython only."""
-    start = target_date.strftime('%d-%m-%Y')
-    end = start  # same day
+    """Fetch OHLCV data for symbols on the target date using yfinance."""
+    start = target_date.strftime('%Y-%m-%d')
+    end = (target_date + timedelta(days=1)).strftime('%Y-%m-%d')  # yfinance needs next day for daily data
+
     data_list = []
 
     for symbol in tqdm(symbols, desc="Fetching OHLCV"):
         try:
-            symbol_clean = symbol.replace('.NS', '')
-
-            df = equity_history(symbol_clean, "EQ", start, end)
+            df = yf.download(symbol, start=start, end=end, progress=False, interval="1d")
 
             if df.empty:
-                print(f"No data for {symbol_clean} on {target_date.strftime('%Y-%m-%d')}")
+                print(f"No data for {symbol} on {target_date.strftime('%Y-%m-%d')}")
                 continue
 
             row = df.iloc[0]
             data_list.append({
-                'Symbol': symbol_clean,
+                'Symbol': symbol.replace('.NS', ''),
                 'Date': target_date.strftime('%Y-%m-%d'),
-                'Open': float(row['CH_OPENING_PRICE']),
-                'High': float(row['CH_TRADE_HIGH_PRICE']),
-                'Low': float(row['CH_TRADE_LOW_PRICE']),
-                'Close': float(row['CH_CLOSING_PRICE']),
-                'Volume': int(row['CH_TOT_TRADED_QTY'])
+                'Open': float(row['Open']),
+                'High': float(row['High']),
+                'Low': float(row['Low']),
+                'Close': float(row['Close']),
+                'Volume': int(row['Volume'])
             })
 
-            time.sleep(0.5)  # avoid hitting API limits
+            time.sleep(0.2)  # polite delay
         except Exception as e:
-            print(f"nsepython failed for {symbol}: {e}")
+            print(f"yfinance failed for {symbol}: {e}")
             continue
 
     return pd.DataFrame(data_list)
@@ -69,7 +67,7 @@ def fetch_stock_data(date_input: str) -> pd.DataFrame:
         'CHOLAFIN.NS', 'COLPAL.NS', 'MPHASIS.NS', 'TATAELXSI.NS', 'BIOCON.NS', 'SUNDARMFIN.NS', 'KPIL.NS', 'LAURUSLABS.NS',
         'TRENT.NS', 'LICI.NS', 'TATACOMM.NS', 'GAIL.NS', 'JINDALSTEL.NS', 'NAUKRI.NS', 'LTF.NS', 'KPITTECH.NS',
         'OFSS.NS', 'JUBLFOOD.NS', 'SYNGENE.NS', 'ZYDUSLIFE.NS', 'ALKEM.NS', 'HDFCAMC.NS', 'MAZDOCK.NS', 'MAXHEALTH.NS', 'POLYCAB.NS',
-        'MANKIND.NS', 'WAAREEENER.NS', 'UNIONBANK.NS', 'INDUSTOWER.NS', 'MARICO.NS', 'INDIANB.NS', 'BSE.NS',
+        'MANKIND.NS', 'WAAREEENER.NS', 'UNIONBANK.NS', 'GMRAIRPORT.NS', 'INDUSTOWER.NS', 'MARICO.NS', 'INDIANB.NS', 'BSE.NS',
         'NHPC.NS', 'NTPCGREEN.NS', 'SRF.NS', 'BHARTIHEXA.NS', 'SBICARD.NS', 'ASHOKLEY.NS', 'PAYTM.NS', 'UNOMINDA.NS',
         'ABCAPITAL.NS', 'RVNL.NS', 'FORTIS.NS', 'VOLTAS.NS', 'PRESTIGE.NS', 'NYKAA.NS', 'LLOYDSME.NS'
     ]
@@ -79,10 +77,10 @@ def fetch_stock_data(date_input: str) -> pd.DataFrame:
         'SUVEN.NS', 'NH.NS', 'POONAWALLA.NS', 'DELHIVERY.NS', 'CENTRALBK.NS', 'CDSL.NS', 'GODIGIT.NS',
         'ASTERDM.NS', 'ITI.NS', 'AFFLE.NS', 'GRSE.NS', 'KIMS.NS', 'NBCC.NS', 'SUMICHEM.NS', 'AEGISLOG.NS', 'AMBER.NS', 'HINDCOPPER.NS',
         'LALPATHLAB.NS', 'PPLPHARMA.NS', 'JBCHEPHARM.NS', 'PEL.NS', 'FSL.NS', 'INOXWIND.NS',  'EMCURE.NS', 'TATACHEM.NS',
-        'SHYAMMETL.NS', 'NAVINFLUOR.NS', 'ANANDRATHI.NS', 'EIHOTEL.NS', 'WOCKPHARMA.NS', 'RAMCOCEM.NS', 'MANAPPURAM.NS',
+        'SHYAMMETL.NS', 'NAVINFLUOR.NS', 'ANANDRATHI.NS', 'EIHOTEL.NS', 'WOCKPHARMA.NS', 'RAMCOCEM.NS', 'MANAPPURAM.NS', 'IDEA.NS',
         'IRCON.NS', 'BEML.NS', 'IRCTC.NS', 'HUDCO.NS', 'HAL.NS', 'SAIL.NS', 'BEL.NS',
         'COFORGE.NS', 'KPIGREEN.NS', 'CROMPTON.NS', 'THERMAX.NS', 'ASTRAL.NS', 'METROPOLIS.NS', 'SJVN.NS', 'IRB.NS', 'RBLBANK.NS',
-        'INDIAMART.NS', 'DEEPAKNTR.NS', 'CREDITACC.NS', 'NAVA.NS', 'KEI.NS', 'OBEROIRLTY.NS', 
+        'INDIAMART.NS', 'DEEPAKNTR.NS', 'CREDITACC.NS', 'NAVA.NS', 'KEI.NS', 'OBEROIRLTY.NS',
     ]
 
     all_categories = [
