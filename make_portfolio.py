@@ -5,36 +5,27 @@ import os
 
 
 def extract_inner_json(data):
-    """Extracts and returns the parsed inner JSON from either OpenAI or Gemini response."""
-    # --- Handle OpenAI JSON structure ---
-    if "choices" in data and data["choices"][0]["message"].get("content"):
-        content = data["choices"][0]["message"]["content"]
-        try:
-            return json.loads(content)
-        except json.JSONDecodeError:
-            # Try to extract JSON inside code fences
-            match = re.search(r"```json(.*?)```", content, re.DOTALL)
-            if match:
-                return json.loads(match.group(1).strip())
-            raise
+    """Extracts and returns the parsed inner JSON from a Gemini response."""
+    if "text" not in data:
+        raise ValueError("Invalid Gemini response: missing 'text' field.")
 
-    # --- Handle Gemini JSON structure ---
-    elif "text" in data:
-        text = data["text"]
-        match = re.search(r"```json(.*?)```", text, re.DOTALL)
-        if match:
-            inner = match.group(1).strip()
-            return json.loads(inner)
-        else:
-            return json.loads(text)
+    text = data["text"].strip()
 
-    else:
-        raise ValueError("Unrecognized JSON structure (neither OpenAI nor Gemini).")
+    # Extract JSON between ```json ... ``` if present
+    match = re.search(r"```json(.*?)```", text, re.DOTALL)
+    if match:
+        inner = match.group(1).strip()
+        return json.loads(inner)
+
+    # Fallback: try direct JSON parsing
+    if text.startswith("json\n"):
+        text = text[5:].strip()
+    return json.loads(text)
 
 
 def update_portfolio(input_date, output_date):
-    """Updates the portfolio CSV for the given output date using either OpenAI or Gemini JSON format."""
-    json_path = f"Grok Daily Reviews/Weekends/t_{input_date}.json"
+    """Updates the portfolio CSV for the given output date using Gemini JSON format."""
+    json_path = f"Gemini Daily Reviews/Weekends/t_{input_date}.json"
     csv_input_path = f"Portfolio Files/{input_date}.csv"
     csv_output_path = f"Portfolio Files/{output_date}.csv"
 
@@ -43,63 +34,43 @@ def update_portfolio(input_date, output_date):
     if not os.path.exists(csv_input_path):
         raise FileNotFoundError(f"CSV file not found: {csv_input_path}")
 
+    # --- Load Gemini JSON ---
     with open(json_path, "r", encoding="utf-8") as f:
         outer_data = json.load(f)
 
-    # Parse content from Gemini or OpenAI response
+    # Extract actual trading instructions
     inner_data = extract_inner_json(outer_data)
 
-    # --- Normalize trades list ---
-    # Gemini uses "emergency_trades" for sells and "top_signals" for buys
-    trades = []
+    if "trades" not in inner_data:
+        raise ValueError("Gemini JSON missing 'trades' section.")
 
-    if "trades" in inner_data:
-        # OpenAI format
-        trades = inner_data["trades"]
-
-    elif "emergency_trades" in inner_data or "top_signals" in inner_data:
-        if "emergency_trades" in inner_data:
-            for t in inner_data["emergency_trades"]:
-                trades.append({
-                    "symbol": t["symbol"],
-                    "action": t["action"].lower(),  # e.g., 'sell'
-                    "shares": t.get("quantity", 0),
-                    "amount": round(t["price"] * t.get("quantity", 0), 2)
-                })
-        if "top_signals" in inner_data:
-            for t in inner_data["top_signals"]:
-                trades.append({
-                    "symbol": t["symbol"],
-                    "action": "buy",
-                    "shares": 1,  # Assume 1 share for new additions unless specified
-                    "amount": round(t["price"], 2)
-                })
-    else:
-        raise ValueError("No trades, top_signals, or emergency_trades found in JSON.")
+    trades = inner_data["trades"]
 
     # --- Load portfolio CSV ---
     df = pd.read_csv(csv_input_path)
 
-    # Extract and remove cash
-    cash_row = df[df["Holding Name"] == "Cash"]
-    if cash_row.empty:
-        cash = 0.0
-    else:
-        cash = cash_row["Total Amount"].values[0]
-        df = df[df["Holding Name"] != "Cash"]
+    # Extract and remove cash row
+    cash_row = df[df["Holding Name"].str.lower() == "cash"]
+    cash = float(cash_row["Total Amount"].values[0]) if not cash_row.empty else 0.0
+    df = df[df["Holding Name"].str.lower() != "cash"]
 
-    # --- Process trades ---
+    # --- Process trades from Gemini ---
     for trade in trades:
         action = trade["action"].lower()
         symbol = trade["symbol"]
-        shares = trade["shares"]
-        amount = round(trade["amount"], 2)
+        shares = trade.get("shares", 0)
+        amount = round(trade.get("amount", 0.0), 2)
         price = round(amount / shares, 2) if shares > 0 else 0.0
 
         if action == "remove":
+            # Simply drop the stock from the portfolio
+            idx = df[df["Holding Name"] == symbol].index
+            if not idx.empty:
+                df = df.drop(idx[0])
             continue
 
         if action == "sell":
+            # Add to cash, reduce or remove holding
             cash += amount
             idx = df[df["Holding Name"] == symbol].index
             if not idx.empty:
@@ -109,13 +80,13 @@ def update_portfolio(input_date, output_date):
                     df.at[idx[0], "Number of Units"] = new_units
                     df.at[idx[0], "Current Price"] = price
                     df.at[idx[0], "Total Amount"] = round(price * new_units, 2)
-                    buying_price = df.at[idx[0], "Buying Price"]
-                    df.at[idx[0], "Perct Change"] = round(
-                        ((price - buying_price) / buying_price) * 100, 2)
+                    buy_price = df.at[idx[0], "Buying Price"]
+                    df.at[idx[0], "Perct Change"] = round(((price - buy_price) / buy_price) * 100, 2)
                 else:
                     df = df.drop(idx[0])
 
         elif action == "buy":
+            # Subtract from cash, add or update holding
             cash -= amount
             idx = df[df["Holding Name"] == symbol].index
             if not idx.empty:
@@ -129,8 +100,7 @@ def update_portfolio(input_date, output_date):
                 df.at[idx[0], "Current Price"] = price
                 df.at[idx[0], "Number of Units"] = new_units
                 df.at[idx[0], "Total Amount"] = round(price * new_units, 2)
-                df.at[idx[0], "Perct Change"] = round(
-                    ((price - new_buy) / new_buy) * 100, 2)
+                df.at[idx[0], "Perct Change"] = round(((price - new_buy) / new_buy) * 100, 2)
             else:
                 new_row = {
                     "Holding Name": symbol,
@@ -142,7 +112,7 @@ def update_portfolio(input_date, output_date):
                 }
                 df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
 
-    # --- Add cash row back ---
+    # --- Add updated cash row ---
     cash = round(cash, 2)
     cash_row = pd.DataFrame({
         "Holding Name": ["Cash"],
@@ -154,7 +124,7 @@ def update_portfolio(input_date, output_date):
     })
     df = pd.concat([df, cash_row], ignore_index=True)
 
-    # --- Round numeric values ---
+    # --- Round and save ---
     for col in ["Buying Price", "Current Price", "Total Amount", "Perct Change"]:
         df[col] = df[col].round(2)
 
@@ -163,6 +133,6 @@ def update_portfolio(input_date, output_date):
 
 
 if __name__ == "__main__":
-    input_date = input("Enter date for JSON and CSV input (YYYY-MM-DD): ").strip()
-    output_date = input("Enter date for CSV output (YYYY-MM-DD): ").strip()
+    input_date = input("Enter input date (YYYY-MM-DD): ").strip()
+    output_date = input("Enter output date (YYYY-MM-DD): ").strip()
     update_portfolio(input_date, output_date)
